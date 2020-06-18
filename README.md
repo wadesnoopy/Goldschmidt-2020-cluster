@@ -1,2 +1,4 @@
 # Goldschmidt-2020-cluster
-Code and data for the workshop -- Cluster analysis and its application in geochemistry during Goldschmidt 2020
+Code, data, and slides for the 2020 Goldschmidt workshop -- Cluster analysis and its application in geochemistry.
+
+Led by Shuang Zhang at Carnegie Earth and Planets Laboratory

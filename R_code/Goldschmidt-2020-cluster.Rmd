@@ -65,17 +65,12 @@ for (package in packages_need){
 ```{r, echo = TRUE, message = FALSE}
 # Navigate to your the R_code folder downloaded from github or from this workshop
 
-# the R_code folder has three parts
-# 1. 2020-cluster.R file
-# 2. input folder that contains the data file we will use
-# 3. output folder that contains the figures generated 
-
 # change "/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code" to your own local path of the R_code folder downloaded from github or from this workshop
 
 setwd("/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code")
 
 # use read_csv to read in data as a data.frame (also as a tibble)
-df <- read_csv(file.path("input", "pyrite_samples.csv"))
+df <- read_csv("pyrite_samples.csv")
 ```
 
 # Glance at your data

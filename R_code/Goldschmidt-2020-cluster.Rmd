@@ -1,0 +1,1402 @@
+---
+title: "Goldschmidt-2020-cluster"
+author: "Shuang Zhang (Carnegie Earth and Planets Laboratory)"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    theme: lumen
+   
+---
+
+<div style="margin-bottom:100px;">
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is an R Markdown document for the workshop -- Cluster analysis and its application in geochemistry during Goldschmidt 2020. It will go through with you the good practices in data exploration, data visualization, and cluster analysis using R. Clustering different types of pyrite is chosen as an example. And, you can apply cluster analysis to a wide array of unsupervised classification problems.
+
+In this code exercise, I will focus on two popular and basic clustering methods, the centroid-based clustering (K-means) and connectivity-based clustering (hierarchical clustering). A lot of the practices will be focused on data visualization and exploration.
+
+FYI, The whole code is finished within 2 minutes on my macbook pro (2019) with 2.3 GHz Intel Core i9. So I would guess in general, it can be finished within ~8 minutes using a normal laptop. But if you run chunk by chunk, this will not be a problem as each chunk runs relatively fast.
+
+# Load the packages
+
+```{r, echo = TRUE, message = FALSE}
+
+# this section will automatically install the missing packages on your own computer
+
+# list the packages that we need
+packages_need <- c("readr", # read in csv file
+                   "dplyr", # manipulate data
+                   "tidyr", # tidy data
+                   "DataExplorer", # check missing data
+                   "ggplot2", # plotting
+                   "GGally", # pairplot
+                   "ggradar", # radar plot
+                   "BBmisc", # do normalization for the radar plot
+                   "corrplot", # correlation plot
+                   "plotly", # interactive 3D plot
+                   "FactoMineR", # do PCA analysis
+                   "factoextra", # facilitate the plotting of PCA outcome and the cluster analysis
+                   "clustertend", # calculate hopkins' index
+                   "fpc", # clusterboot to test stability
+                   "ClusterR"
+)
+
+
+# What the code below does is to check if your R has these packages installed (the require() function), if not, install them (the install.packages() function), and then load the packages using the library() function.
+
+for (package in packages_need){
+  if (!require(package, character.only = TRUE)){
+    install.packages(package)
+  }
+  library(package, character.only = TRUE)
+}
+
+# note that some warning from the require() function will appear if the package you are checking is not installed. Don't worry about it. This is only indicating your R didn't have this package before. But now you have it!
+
+
+```
+# Set up the working directory and read in data
+
+```{r, echo = TRUE, message = FALSE}
+# Navigate to your the R_code folder downloaded from github or from this workshop
+
+# the R_code folder has three parts
+# 1. 2020-cluster.R file
+# 2. input folder that contains the data file we will use
+# 3. output folder that contains the figures generated 
+
+# change "/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code" to your own local path of the R_code folder downloaded from github or from this workshop
+
+setwd("/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code")
+
+# use read_csv to read in data as a data.frame (also as a tibble)
+df <- read_csv(file.path("input", "pyrite_samples.csv"))
+```
+
+# Glance at your data
+
+```{r, echo = TRUE, message = FALSE}
+
+# check how many rows and how many columns
+dim(df)
+
+# check the data types of  data.frame
+str(df)
+
+# View the first several rows of data.frame
+head(df)
+
+# check the column names
+names(df)
+
+# how many missing values
+plot_missing(df)
+
+# delete the rows that contain any NA values
+# this is a quick and dirty way. In practice, you need to consider whether you want to fill these NA with some values (reasonably) to keep as many rows as possible
+df <- na.omit(df)
+
+# double check
+plot_missing(df)
+```
+
+
+
+# Data exploration and visualization
+
+## Data exploration and visualization -- Part 1
+
+```{r, echo = TRUE, message = FALSE}
+
+# check the pyrite types
+
+# note that in some cluster analysis, you might not have any label at all. This part (and below) is to help you expore the features of different groups (or labels)  if your data set has some labels and you think your clustered groups might have a close relationship with these labels.
+
+# in cluster analysis (broadly speaking machine learning),  data exploration and visualization is essential for you to really understand your data. Remember that garbage in, garbage out.
+
+unique(df$Type)
+
+# check the number of pyrite samples in each type
+ggplot(df) +
+  geom_bar(aes(x = Type), color = "white", show.legend = FALSE) +
+  labs(x = "Pyrite type", y = "Count") +
+  theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=10),
+    axis.title = element_text(size=12)
+  )
+
+
+# how about rendering each column with a unique color and rank the pyrite types based on their formational environment (from low temperature to high temperature)
+
+# In the analyese below, this order is maintained
+
+# from low to high
+# I use blue to represent lower temperature and red to represent higher temperature. So blue ice and red fire! Cool.
+df$Type <- factor(df$Type, levels = c("Sedimentary", "VHMS", "Porphyry"))
+color_sequence = c("#2166ac", "#f4a582", "#b2182b")
+
+# plot again
+ggplot(df) +
+  geom_bar(aes(x = Type, fill = Type), color = "white", show.legend = FALSE) +
+  labs(x = "Pyrite type", y = "Count") +
+  scale_fill_manual(values=color_sequence) +
+  theme(
+    aspect.ratio = 1,
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=10),
+    axis.title = element_text(size=12)
+  )
+
+
+
+
+```
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 0.6}
+
+# first, to make the plot wider, I added "fig.width = 12, fig.asp = .6" in the {} above
+
+
+# check the trace element distribution
+# to do this, we need to transform data from a wide format to a long format (the gather function helps)
+# the new column "cols" will contain the column names (trace element names) in the original dataset, and the new column "value" will contain the concentration 
+df_long <- gather(df, cols, value, -Type)
+
+# check the data
+head(df_long)
+
+# plot the distribution
+ggplot(df_long) + 
+  geom_histogram(aes(x = value), color="white", lwd = 0.05) +
+  facet_wrap(vars(cols), scales = "free") +
+  labs(x="", y="Count") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size=10),
+        axis.text.y = element_text(size=10),
+        axis.title = element_text(size=14),
+        strip.text.x = element_text(size = 10, color = "#333333"),
+        strip.text.y = element_text(size = 10, color = "#333333"),
+        strip.background = element_rect(color="black", fill="#EEEEEE"))
+
+# Separate data into different panels based on different types they belong to
+
+ggplot(df_long, aes(x = value)) + 
+  geom_histogram(aes(fill=Type), color="white", lwd = 0.05, show.legend = FALSE) + 
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_x_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_fill_manual(values=color_sequence) +
+  facet_grid(vars(Type), vars(cols), scales = "free") + 
+  labs(x="", y="Count") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size=7),
+    axis.text.y = element_text(size=9),
+    axis.title = element_text(size=12),
+    strip.text.x = element_text(size = 12, color = "#333333"),
+    strip.text.y = element_text(size = 12, color = "#333333"),
+    strip.background = element_rect(color="black", fill="#EEEEEE"))
+
+
+# note that the data is largly right skewed
+# do log10 transformation
+
+names(df)
+
+# assign the index of the end of the numerical value (trace element)
+col_end <- 10
+
+# Do log transformation
+# before doing the transformation, check if there is any value that is not positive
+
+sum(rowSums(df[1:col_end] <= 0) > 0)
+
+df_trans <- cbind(log10(df[1:col_end]), df[col_end+1])
+
+# now we change the name of data.frame since it is log transformed (meaning the unit ppm is not suitable now)
+
+df_trans <- df_trans %>% 
+  dplyr::rename(`Ag`=`Ag (ppm)`,
+                `As`=`As (ppm)`,
+                `Cu`=`Cu (ppm)`,
+                `Mo`=`Mo (ppm)`,
+                `Pb`=`Pb (ppm)`,
+                `Sb`=`Sb (ppm)`,
+                `Tl`=`Tl (ppm)`,
+                `Zn`=`Zn (ppm)`,
+                `Ni`=`Ni (ppm)`,
+                `Co`=`Co (ppm)`)
+
+# check names
+
+names(df_trans)
+
+# transform from wide format to long format
+df_trans_long <- gather(df_trans, cols, value, -Type)
+
+# now we plot based on log-transformed value
+
+ggplot(df_trans_long, aes(x = value)) + 
+  geom_histogram(aes(fill=Type), color="white", lwd = 0.05, show.legend = FALSE) + 
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_x_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_fill_manual(values=color_sequence) +
+  facet_grid(vars(Type), vars(cols), scales = "free") + 
+  labs(x="", y="Count") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size=9),
+    axis.text.y = element_text(size=9),
+    axis.title = element_text(size=12),
+    strip.text.x = element_text(size = 12, color = "#333333"),
+    strip.text.y = element_text(size = 12, color = "#333333"),
+    strip.background = element_rect(color="black", fill="#EEEEEE"))
+
+
+# From the distribution, we find that
+
+# Sedimentary and VHMS (lower temperature types) have a higher concentration of trace elements compared with Porphyry
+# However, Co and Ni are exceptions here. For Co and Ni, Sedimentary and Porphyry have higher concentrations
+
+# Why not moving Co and Ni to the end and adding the median line for each element? Let's do it.
+
+# 1. move Co and Ni to the end
+df_trans_long$cols <- factor(df_trans_long$cols, levels = c("Ag", 
+                                                            "As",
+                                                            "Cu",
+                                                            "Mo",
+                                                            "Pb",
+                                                            "Sb",
+                                                            "Tl",
+                                                            "Zn",
+                                                            "Co",
+                                                            "Ni"))
+
+# calculate the median value for each trace element
+df_trans_long_median <- df_trans_long %>% 
+  group_by(Type, cols) %>% 
+  summarise(median=median(value)) %>% 
+  ungroup()
+
+
+# plot again
+ggplot(df_trans_long, aes(x = value)) + 
+  geom_histogram(aes(fill=Type), color="white", lwd = 0.05, show.legend = FALSE) + 
+  geom_vline(data=df_trans_long_median, aes(xintercept = median), color="#666666", lty="dashed", lwd=0.5, show.legend = FALSE) +
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_x_continuous(expand = expand_scale(mult = c(0, 0))) +
+  scale_fill_manual(values=color_sequence) +
+  facet_grid(vars(Type), vars(cols), scales = "free") + 
+  labs(x="", y="Count") +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size=9),
+    axis.text.y = element_text(size=9),
+    axis.title = element_text(size=12),
+    strip.text.x = element_text(size = 12, color = "#333333"),
+    strip.text.y = element_text(size = 12, color = "#333333"),
+    strip.background = element_rect(color="black", fill="#EEEEEE"))
+
+
+# Another cool way to show the difference between each group -- the Radar plot!
+
+# construct the normalized median value for the radar plot
+df_trans_radar <- df_trans %>% 
+  group_by(Type) %>% 
+  summarise_all(median) %>% 
+  normalize(., "range") %>%
+  ungroup()
+
+# plot
+ggradar(df_trans_radar, 
+        label.gridline.min = FALSE,
+        group.colours = color_sequence,
+        group.point.size = 5,
+        group.line.width = 0.1,
+        grid.label.size = 8,
+        legend.position = "right")
+
+```
+
+
+
+## Data exploration and visualization -- Part 2
+
+What is the relationship between two trace elements? Obviously, we are now moving from 1D plot (histogram) to 2D plot (scatter plot for example).
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1}
+
+# We can deal with this using pairplot.
+
+# plot the relationship between two elements (be patient here as it is a bit time consuming, which also depends on your computer performance)
+
+# From this pairplot, it is easy to see the pattern shifts for Co and Ni.
+
+p_ggpairs <- ggpairs(df_trans,
+                     legend = 1,
+                     columns = 1:col_end, 
+                     upper=list(continuous = wrap("cor", size=4, alpha=1, color="#333333")),
+                     diag = list(continuous = wrap("densityDiag", size=0.1, alpha = 0.5, color="black"), mapping = aes(fill = Type)),
+                     lower=list(continuous = wrap("points", size=1, alpha=1, shape=21, stroke=0.1, color="white"), mapping = aes(fill = Type))
+) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=10),
+        legend.position = "bottom",
+        legend.title = element_text(size=15, face = "bold"),
+        legend.text = element_text(size=12, color = "#333333"))
+
+# Note that ggpairs does not support scale_fill_manual itself (as far as I know)
+# So I need to do some tricks here to keep the color scheme consistent through this workshop
+
+for(i in 1:p_ggpairs$nrow) {
+  for(j in 1:p_ggpairs$ncol){
+    p_ggpairs[i,j] <- p_ggpairs[i,j] + 
+      scale_fill_manual(values=color_sequence)
+  }
+}
+
+p_ggpairs
+
+```
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7, fig.asp = 1}
+# To see better about the correlation between two parameters, let's do correlation plot (using Pearson's correlation coefficient. You can try the Spearman's rank correlation coefficient)
+
+# From the correlation plot, it is easy to see that Co and Ni correlate negatively with most of the other variables. All the other variables correlate with each other positively.
+
+# construct the correlation matrix
+M_df_trans <- cor(df_trans[1:col_end])
+
+col <- colorRampPalette(c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0", "#f7f7f7", "#fddbc7", "#f4a582", "#d6604d", "#b2182b"))
+
+corrplot.mixed(M_df_trans, 
+               upper.col = col(200),
+               lower.col = col(200),
+               tl.col = "#333333", 
+               tl.cex = 0.8)
+
+```
+
+
+
+## Data exploration and visualization -- Part 3
+
+Now we have the plots for single element (histogram, one dimention) and element in pairs (two dimensions), how do we explore the data in higher dimension. Easily, we can produce 3-D plot in R, but we still need to select 3 elements to do the plot, which indicates we will need many combinations to fully see the pattern. In addition, there is no way to see the pattern in 4D and higher dimensions.
+
+Dimension reduction comes to the rescue!
+
+**We will use PCA (Linear dimensionality reduction) here.**
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+# scale data
+mat_clean_final <- scale(df_trans[1:col_end], center = TRUE, scale = TRUE)
+
+apply(mat_clean_final, 2, mean)
+
+apply(mat_clean_final, 2, sd)
+
+# save the scaled value into a data.frame
+df_clean_final <- cbind(as.data.frame(mat_clean_final), df_trans[col_end + 1])
+
+names(df_clean_final)
+
+
+# create the distance matrix
+mat_clean_final_dist_euclidean <- dist(mat_clean_final, method = "euclidean", diag = TRUE, upper = TRUE)
+
+mat_clean_final_dist_manhattan <- dist(mat_clean_final, method = "manhattan", diag = TRUE, upper = TRUE)
+
+
+# PCA ------------------------------------------------------
+
+pca_out <- PCA(mat_clean_final, scale.unit = FALSE, ncp = col_end, graph = FALSE) # since already scaled, not need to do it again
+
+# scree-plot to see how much variance can be explained by each component
+
+fviz_screeplot(pca_out,
+               barfill = "#8491B4", 
+               barcolor = "white", 
+               linecolor = "#E7675D",
+               ncp = col_end,
+               addlabels = TRUE) +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.2),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# cumulative proportion of explained variance with the increase of principal component
+
+pr_pve_cumsum <- pca_out$eig[, "cumulative percentage of variance"]
+
+df_cum_pr_pve <- data.frame(num = 1:col_end,
+                            cum = pr_pve_cumsum)
+
+ggplot(df_cum_pr_pve) +
+  geom_line(aes(x = num, y = cum)) +
+  geom_point(aes(x = num, y = cum), color = "#E7675D", size = 2) +
+  labs(x = "Principal Component", y = "Cumulative Proportion of Variance Explained") +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.2),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# contribution by each trace element to the first principle component
+
+fviz_contrib(pca_out, 
+             choice = "var", 
+             axes = 1,
+             fill = "#8491B4", 
+             color = "white", 
+             linecolor = "#E7675D") +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.2),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# contribution by each trace element to the second principle component
+
+fviz_contrib(pca_out, 
+             choice = "var", 
+             axes = 2,
+             fill = "#8491B4", 
+             color = "white", 
+             linecolor = "#E7675D") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0.2),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# make the biplot to see the grouping of trace elements
+
+fviz_pca_biplot(pca_out,
+                geom.ind = "point",
+                label ="var",
+                labelsize = 3,
+                alpha.var = 0.7,
+                pointsize = 2,
+                pointshape =21,
+                fill.ind = df_clean_final$Type,
+                col.ind = "white",
+                alpha.ind = 1,
+                palette = color_sequence,
+                repel = TRUE,
+                col.var = "#666666",
+                invisible ="quali"
+) +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  guides(fill=guide_legend(title="Type")) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=12))
+
+
+# extract the transformed data by PCA and construct own data.frame
+
+pca_df <- data.frame(x = pca_out$ind$coord[, 1], 
+                     y = pca_out$ind$coord[, 2],
+                     z = pca_out$ind$coord[, 3],
+                     Type = df_clean_final$Type)
+
+ggplot() +
+  geom_point(data = pca_df, aes(x=x, y=y, fill=Type), shape=21, color="white", alpha=1, size=2, stroke=0.3) +
+  labs(x = "PC1", y = "PC2") +
+  scale_fill_manual(values = color_sequence) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  guides(fill = guide_legend(override.aes = list(size=2.5))) +
+  coord_fixed() +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=12))
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 10}
+
+# How about a fresh interactive 3D plot?
+
+# 3d
+plot_ly(data = pca_df,
+        x = ~x, 
+        y = ~y, 
+        z = ~z, 
+        type = "scatter3d", 
+        mode = "markers", 
+        color = ~Type,
+        colors = color_sequence,
+        marker = list(size = 4)
+) %>% 
+  layout(legend = list(x = 0, 
+                       y = 1,
+                       orientation = 'h',
+                       font = list(size = 15),
+                       bgcolor = "white"))
+
+
+```
+
+# Cluster analysis
+
+Before applying cluster methods, the first step is to assess whether the data is clusterable, a process defined as the assessing of clustering tendency.
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+hopkins_stat <- 1 - hopkins(mat_clean_final, n = nrow(mat_clean_final)-1, byrow = F, header = F)$H
+
+# the hopkins' stat is bigger than 0.5 and has a tendency for clustering
+hopkins_stat
+
+
+```
+
+
+## Cluster part 1 -- K-means
+
+### Find the best number of clusters
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+# use fviz_nbclust to calculate the wss 
+fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "wss") +
+  labs(subtitle = "Elbow method") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# use fviz_nbclust to calculate the average silhouette
+fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "silhouette") +
+  labs(subtitle = "Silhouette method") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+# # 7 clusters is the best!!!
+# fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, nboot = 50, method = "gap_stat") +
+#   labs(subtitle = "Gap statistic") +
+#   theme_bw() +
+#   theme(panel.grid.major = element_line(size = 0.2),
+#         panel.grid.minor = element_line(size = 0),
+#         axis.text = element_text(size=12),
+#         axis.title = element_text(size=14))
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, results="hide", fig.width = 7}
+
+# use clusterboot to resample the data and calculate the stability
+
+# note that results="hide" is to prevent the output of boot number
+kmeans_jaccard <- c()
+
+for (i in 2:5){
+  
+  # prevent the output of boot 1 to 50
+  cboot_kmeans <- clusterboot(mat_clean_final,
+                              B=50,
+                              clustermethod = kmeansCBI,
+                              runs = 25,
+                              iter.max = 50,
+                              k = i)
+  
+  # calculate the mean Jaccard index for each cluster, and then average the mean
+  kmeans_jaccard <- c(kmeans_jaccard, mean(apply(cboot_kmeans$bootresult, 1, mean)))
+}
+
+
+kmeans_jaccard_df <- data.frame(Cluster=2:5, Jaccard = kmeans_jaccard)
+
+
+ggplot(kmeans_jaccard_df) +
+  geom_line(aes(x=Cluster, y=Jaccard)) +
+  geom_point(aes(x=Cluster, y=Jaccard), size=3, color="#E7675D") +
+  labs(x = "Number of clusters", y = "Mean Jaccard Index") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+  )
+```
+
+
+
+### Exploration using the best number of clusters
+
+```{r, echo = TRUE, message = FALSE, results="hide", fig.width = 7}
+
+
+kmeans_best_n <- 2
+
+kmeans_out_best <- eclust(mat_clean_final, "kmeans", k = kmeans_best_n, nstart = 25, iter.max = 50, graph = FALSE)
+
+# define the color of the clusters
+
+cluster_colors <- c("#31a354", "#756bb1", "#e6550d") # green, blue and orange
+
+# define the color of the clusters
+cluster_color_func <- function(cluster_number){
+  if (cluster_number == 2){
+    return(cluster_colors[1:2]) # green, purple to distinguish from the color for pyrite type
+  }else if (cluster_number == 3){
+    return(cluster_colors[1:3]) # green, purple and pink
+  }else{
+    return(colorRampPalette(color_sequence)(cluster_number))
+  }
+}
+
+
+
+# assign the color to the cluster
+color_cluster_kmeans <- cluster_color_func(kmeans_best_n)
+
+
+
+# kmeans-pca plot
+
+kmeans_best_pca_df <- data.frame(x=pca_out$ind$coord[,1], 
+                                 y=pca_out$ind$coord[,2],
+                                 Cluster=as.factor(kmeans_out_best$cluster))
+
+
+# plot on pca
+ggplot(kmeans_best_pca_df) +
+  geom_point(aes(x=x, y=y, color=Cluster), size=2, alpha=0.8, stroke=0) +
+  stat_ellipse(aes(x=x, y=y, color=Cluster), level = 0.95, show.legend = FALSE) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  labs(x = "PC1", y = "PC2") +
+  coord_fixed() +
+  scale_color_manual(values = color_cluster_kmeans) +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# compare with original
+
+kmeans_best_origin <- table(kmeans_out_best$cluster, df_clean_final$Type)
+
+kmeans_best_origin_df <- data.frame(kmeans_best_origin) # this will change deposit sytle to factor
+
+# original bar
+ggplot(kmeans_best_origin_df) +
+  geom_bar(aes(x = Var1, y = Freq, fill = Var2), stat = 'identity', width = 0.5) +
+  labs(x = "Cluster",
+       y = "Count") +
+  guides(fill=guide_legend(title="Type")) +
+  scale_fill_manual(values = color_sequence) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.title = element_text(color = "#333333", size = 15),
+        legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# Back to the relationship between the trace element concentration and the clusters generated
+
+# create another variable and add the clusters generated as one column
+df_clean_final_kmeans <- df_clean_final
+
+# use factor() here to assign an order
+df_clean_final_kmeans$kmeans_cluster <- factor(kmeans_out_best$cluster)
+
+unique(df_clean_final_kmeans$kmeans_cluster)
+
+# Parallel coordiante plots allow us to put each feature on seperate column and lines connecting each column
+
+ggparcoord(data = df_clean_final_kmeans, 
+           columns = 1:col_end, 
+           groupColumn = col_end + 2, 
+           alphaLines = 0.7, 
+           # boxplot = TRUE,
+           title = "Parallel Coordinate Plot for kmeans clustering",
+           scale = "globalminmax", 
+           showPoints = FALSE) + 
+  scale_color_manual(values=color_cluster_kmeans) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size=0.2),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size=14),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.position = "bottom")
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1}
+
+# pairplot (this needs to be in its own block to make the figure wide)
+
+p_kmeans_ggpairs <- ggpairs(df_clean_final_kmeans,
+                            legend = 1,
+                            columns = 1:col_end, 
+                            upper=list(continuous = wrap("cor", size=4, alpha=1, color="#333333")),
+                            diag = list(continuous = wrap("densityDiag", size=0.1, alpha = 0.5, color="black"), mapping = aes(fill = kmeans_cluster)),
+                            lower=list(continuous = wrap("points", size=1, alpha=1, shape=21, stroke=0.1, color="white"), mapping = aes(fill = kmeans_cluster))
+) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=col_end),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"))
+
+# since there is no color here, we only need to use fill!
+for(i in 1:p_kmeans_ggpairs$nrow) {
+  for(j in 1:p_kmeans_ggpairs$ncol){
+    p_kmeans_ggpairs[i,j] <- p_kmeans_ggpairs[i,j] + 
+      scale_fill_manual(values=color_cluster_kmeans)
+  }
+}
+
+
+p_kmeans_ggpairs
+
+
+```
+
+### Further exploration
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+# note that the best number of clusters based on the analyses above might not be the best
+# It’s important to remember that sometimes cluster analysis isn’t about finding the right answer – it’s about finding ways to look at data that allow us to understand the data better.
+
+# External validation
+
+kmeans_rand_external <- c()
+
+for (i in 2:5){
+  
+  kmeans_out_i <- eclust(mat_clean_final, "kmeans", k = i, nstart = 25, iter.max = 50, graph = FALSE)
+  
+  kmeans_rand_external <- c(kmeans_rand_external, 
+                            external_validation(as.numeric(df_clean_final$Type),
+                                                kmeans_out_i$cluster, 
+                                                method = "adjusted_rand_index")
+  )
+  
+  
+}
+
+
+kmeans_rand_external_df <- data.frame(Cluster=2:5, Rand = kmeans_rand_external)
+
+ggplot(kmeans_rand_external_df) +
+  geom_line(aes(x=Cluster, y=Rand)) +
+  geom_point(aes(x=Cluster, y=Rand), color = "#E7675D", size=2) +
+  labs(x = "Cluster", y = "Adjusted Rand Index") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+  )
+
+
+
+# How about we use 3
+
+kmeans_best_n <- 3
+
+kmeans_out_best <- eclust(mat_clean_final, "kmeans", k = kmeans_best_n, nstart = 25, iter.max = 50, graph = FALSE)
+
+# assign the color to the cluster
+color_cluster_kmeans <- cluster_color_func(kmeans_best_n)
+
+
+# kmeans-pca plot
+
+kmeans_best_pca_df <- data.frame(x=pca_out$ind$coord[,1], 
+                                 y=pca_out$ind$coord[,2],
+                                 Cluster=as.factor(kmeans_out_best$cluster))
+
+
+# plot on pca
+ggplot(kmeans_best_pca_df) +
+  geom_point(aes(x=x, y=y, color=Cluster), size=2, alpha=0.8, stroke=0) +
+  stat_ellipse(aes(x=x, y=y, color=Cluster), level = 0.95, show.legend = FALSE) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  labs(x = "PC1", y = "PC2") +
+  coord_fixed() +
+  scale_color_manual(values = color_cluster_kmeans) +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+
+# compare with original
+
+kmeans_best_origin <- table(kmeans_out_best$cluster, df_clean_final$Type)
+
+kmeans_best_origin_df <- data.frame(kmeans_best_origin) # this will change deposit sytle to factor
+
+# original bar
+ggplot(kmeans_best_origin_df) +
+  geom_bar(aes(x = Var1, y = Freq, fill = Var2), stat = 'identity', width = 0.5) +
+  labs(x = "Cluster",
+       y = "Count") +
+  guides(fill=guide_legend(title="Type")) +
+  scale_fill_manual(values = color_sequence) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.title = element_text(color = "#333333", size = 15),
+        legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# Back to the relationship between the trace element concentration and the clusters generated
+
+# create another variable and add the clusters generated as one column
+df_clean_final_kmeans <- df_clean_final
+
+# use factor() here to assign an order
+df_clean_final_kmeans$kmeans_cluster <- factor(kmeans_out_best$cluster)
+
+unique(df_clean_final_kmeans$kmeans_cluster)
+
+# Parallel coordiante plots allow us to put each feature on seperate column and lines connecting each column
+
+ggparcoord(data = df_clean_final_kmeans, 
+           columns = 1:col_end, 
+           groupColumn = col_end + 2, 
+           alphaLines = 0.7, 
+           # boxplot = TRUE,
+           title = "Parallel Coordinate Plot for kmeans clustering",
+           scale = "globalminmax", 
+           showPoints = FALSE) + 
+  scale_color_manual(values=color_cluster_kmeans) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size=0.2),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size=14),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.position = "bottom")
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1}
+
+# pairplot (this needs to be in its own block to make the figure wide)
+
+p_kmeans_ggpairs <- ggpairs(df_clean_final_kmeans,
+                            legend = 1,
+                            columns = 1:col_end, 
+                            upper=list(continuous = wrap("cor", size=4, alpha=1, color="#333333")),
+                            diag = list(continuous = wrap("densityDiag", size=0.1, alpha = 0.5, color="black"), mapping = aes(fill = kmeans_cluster)),
+                            lower=list(continuous = wrap("points", size=1, alpha=1, shape=21, stroke=0.1, color="white"), mapping = aes(fill = kmeans_cluster))
+) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=col_end),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"))
+
+# since there is no color here, we only need to use fill!
+for(i in 1:p_kmeans_ggpairs$nrow) {
+  for(j in 1:p_kmeans_ggpairs$ncol){
+    p_kmeans_ggpairs[i,j] <- p_kmeans_ggpairs[i,j] + 
+      scale_fill_manual(values=color_cluster_kmeans)
+  }
+}
+
+
+p_kmeans_ggpairs
+
+```
+
+
+
+
+
+
+
+
+## Cluster part 2 -- Hierarchical clustering
+
+### Find the best number of clusters
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+# choose the best linkage method using cophenetic correlation
+
+hc_list <- list()
+
+coph_correlation <- c()
+
+hc_linkages <- c("single", "complete", "average", "ward.D2")
+
+for (hc_linkage in hc_linkages){
+  hc_out <- hclust(mat_clean_final_dist_euclidean, method = hc_linkage)
+  
+  hc_list[[hc_linkage]] <- hc_out
+  
+  coph_correlation[hc_linkage] <- cor(mat_clean_final_dist_euclidean, cophenetic(hc_out))
+}
+
+# check the cophenetic correlation
+# note that the average linkage is better than other linkages
+coph_correlation
+
+# plot the dendrogram
+fviz_dend(hc_list[["average"]], 
+          cex = 0.3)
+
+# use fviz_nbclust to calculate the wss 
+
+fviz_nbclust(mat_clean_final, hcut, method = "wss", hc_method = "average") +
+  labs(subtitle = "Elbow method") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+# use fviz_nbclust to calculate the average silhouette
+fviz_nbclust(mat_clean_final, hcut,  method = "silhouette", hc_method = "average") +
+  labs(subtitle = "Silhouette method") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14))
+
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, results="hide", fig.width = 7}
+
+# use clusterboot to resample the data and calculate the stability
+
+# note that results="hide" is to prevent the output of boot number
+hc_jaccard <- c()
+
+
+for (i in 2:5){
+  
+  # prevent the output of boot 1 to 50
+  cboot_hc <- clusterboot(mat_clean_final_dist_euclidean,
+                          distances = TRUE,
+                          B=50,
+                          clustermethod = hclustCBI,
+                          method = "average",
+                          k = i)
+  
+  # calculate the mean Jaccard index for each cluster, and then average the mean
+  hc_jaccard <- c(hc_jaccard, mean(apply(cboot_hc$bootresult, 1, mean)))
+}
+
+
+hc_jaccard_df <- data.frame(Cluster=2:5, Jaccard = hc_jaccard)
+
+
+ggplot(hc_jaccard_df) +
+  geom_line(aes(x=Cluster, y=Jaccard)) +
+  geom_point(aes(x=Cluster, y=Jaccard), size=3, color="#E7675D") +
+  labs(x = "Number of clusters", y = "Mean Jaccard Index") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+  )
+
+
+```
+
+### Exploration using the best number of clusters
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+hc_best_n <- 2
+
+# Now we cut the tree
+# Cut in 2 groups and color by groups
+fviz_dend(hc_list[["average"]], 
+          k = hc_best_n,
+          cex = 0.3,
+          k_colors = cluster_colors[1:2])
+
+
+# obtain the cluster
+hc_out_best <- data.frame(cluster = cutree(hc_list[["average"]], k = hc_best_n))
+
+# assign the color to the cluster
+
+color_cluster_hc <- cluster_color_func(hc_best_n)
+
+
+# hc-pca plot
+
+hc_best_pca_df <- data.frame(x=pca_out$ind$coord[,1], 
+                             y=pca_out$ind$coord[,2],
+                             Cluster=as.factor(hc_out_best$cluster))
+
+
+# plot on pca
+ggplot(hc_best_pca_df) +
+  geom_point(aes(x=x, y=y, color=Cluster), size=2, alpha=0.8, stroke=0) +
+  stat_ellipse(aes(x=x, y=y, color=Cluster), level = 0.95, show.legend = FALSE) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  labs(x = "PC1", y = "PC2") +
+  coord_fixed() +
+  scale_color_manual(values = color_cluster_hc) +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# compare with original
+
+hc_best_origin <- table(hc_out_best$cluster, df_clean_final$Type)
+
+hc_best_origin_df <- data.frame(hc_best_origin) # this will change deposit sytle to factor
+
+
+# original bar
+ggplot(hc_best_origin_df) +
+  geom_bar(aes(x = Var1, y = Freq, fill = Var2), stat = 'identity', width = 0.5) +
+  labs(x = "Cluster",
+       y = "Count") +
+  guides(fill=guide_legend(title="Type")) +
+  scale_fill_manual(values = color_sequence) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.title = element_text(color = "#333333", size = 15),
+        legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# Back to the relationship between the trace element concentration and the clusters generated
+
+# create another variable and add the clusters generated as one column
+df_clean_final_hc <- df_clean_final
+
+# use factor() here to assign an order
+df_clean_final_hc$hc_cluster <- factor(hc_out_best$cluster)
+
+unique(df_clean_final_hc$hc_cluster)
+
+# Parallel coordiante plots allow us to put each feature on seperate column and lines connecting each column
+
+ggparcoord(data = df_clean_final_hc, 
+           columns = 1:col_end, 
+           groupColumn = col_end + 2, 
+           alphaLines = 0.5, 
+           # boxplot = TRUE,
+           title = "Parallel Coordinate Plot for hc clustering",
+           scale = "globalminmax", 
+           showPoints = FALSE) + 
+  scale_color_manual(values=color_cluster_hc) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size=0.2),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size=14),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.position = "bottom")
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1}
+
+# pairplot (this needs to be in its own block to make the figure wide)
+
+p_hc_ggpairs <- ggpairs(df_clean_final_hc,
+                        legend = 1,
+                        columns = 1:col_end, 
+                        upper=list(continuous = wrap("cor", size=4, alpha=1, color="#333333")),
+                        diag = list(continuous = wrap("densityDiag", size=0.1, alpha = 0.5, color="black"), mapping = aes(fill = hc_cluster)),
+                        lower=list(continuous = wrap("points", size=1, alpha=1, shape=21, stroke=0.1, color="white"), mapping = aes(fill = hc_cluster))
+) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=col_end),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"))
+
+# since there is no color here, we only need to use fill!
+for(i in 1:p_hc_ggpairs$nrow) {
+  for(j in 1:p_hc_ggpairs$ncol){
+    p_hc_ggpairs[i,j] <- p_hc_ggpairs[i,j] + 
+      scale_fill_manual(values=color_cluster_hc)
+  }
+}
+
+
+p_hc_ggpairs
+
+
+```
+
+### Further exploration
+
+```{r, echo = TRUE, message = FALSE, fig.width = 7}
+
+# note that the best number of clusters based on the analyses above might not be the best
+# It’s important to remember that sometimes cluster analysis isn’t about finding the right answer – it’s about finding ways to look at data that allow us to understand the data better.
+
+# External validation
+
+hc_rand_external <- c()
+
+for (i in 2:5){
+  
+  hc_rand_external <- c(hc_rand_external, 
+                        external_validation(as.numeric(df_clean_final$Type),
+                                            cutree(hc_list[["average"]], k=i), 
+                                            method = "adjusted_rand_index")
+  )
+  
+  
+}
+
+
+hc_rand_external_df <- data.frame(Cluster=2:5, Rand = hc_rand_external)
+
+ggplot(hc_rand_external_df) +
+  geom_line(aes(x=Cluster, y=Rand)) +
+  geom_point(aes(x=Cluster, y=Rand), color = "#E7675D", size=2) +
+  labs(x = "Cluster", y = "Adjusted Rand Index") +
+  theme_bw() +
+  theme(panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14)
+  )
+
+
+hc_best_n <- 3
+
+# Cut in 3 groups and color by groups
+fviz_dend(hc_list[["average"]], 
+          k = hc_best_n,
+          cex = 0.3,
+          k_colors = cluster_colors[1:3])
+
+# obtain the cluster
+hc_out_best <- data.frame(cluster = cutree(hc_list[["average"]], hc_best_n))
+
+# assign the color to the cluster
+color_cluster_hc <- cluster_color_func(hc_best_n)
+
+
+# hc-pca plot
+
+hc_best_pca_df <- data.frame(x=pca_out$ind$coord[,1], 
+                             y=pca_out$ind$coord[,2],
+                             Cluster=as.factor(hc_out_best$cluster))
+
+
+# plot on pca
+ggplot(hc_best_pca_df) +
+  geom_point(aes(x=x, y=y, color=Cluster), size=2, alpha=0.8, stroke=0) +
+  stat_ellipse(aes(x=x, y=y, color=Cluster), level = 0.95, show.legend = FALSE) +
+  scale_x_continuous(breaks = scales::pretty_breaks()) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  labs(x = "PC1", y = "PC2") +
+  coord_fixed() +
+  scale_color_manual(values = color_cluster_hc) +
+  guides(color = guide_legend(override.aes = list(size=3))) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.title = element_text(color = "#333333", size = 15),
+    legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+
+# compare with original
+
+hc_best_origin <- table(hc_out_best$cluster, df_clean_final$Type)
+
+hc_best_origin_df <- data.frame(hc_best_origin) # this will change deposit sytle to factor
+
+hc_best_origin_df
+
+# original bar
+ggplot(hc_best_origin_df) +
+  geom_bar(aes(x = Var1, y = Freq, fill = Var2), stat = 'identity', width = 0.5) +
+  labs(x = "Cluster",
+       y = "Count") +
+  guides(fill=guide_legend(title="Type")) +
+  scale_fill_manual(values = color_sequence) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_line(size = 0.2),
+        panel.grid.minor = element_line(size = 0),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=14),
+        legend.title = element_text(color = "#333333", size = 15),
+        legend.text = element_text(color = "#333333", size=15)
+  )
+
+
+# Back to the relationship between the trace element concentration and the clusters generated
+
+# create another variable and add the clusters generated as one column
+df_clean_final_hc <- df_clean_final
+
+# use factor() here to assign an order
+df_clean_final_hc$hc_cluster <- factor(hc_out_best$cluster)
+
+unique(df_clean_final_hc$hc_cluster)
+
+# Parallel coordiante plots allow us to put each feature on seperate column and lines connecting each column
+
+ggparcoord(data = df_clean_final_hc, 
+           columns = 1:col_end, 
+           groupColumn = col_end + 2, 
+           alphaLines = 0.5, 
+           # boxplot = TRUE,
+           title = "Parallel Coordinate Plot for hc clustering",
+           scale = "globalminmax", 
+           showPoints = FALSE) + 
+  scale_color_manual(values=color_cluster_hc) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_line(size=0.2),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size=14),
+    axis.text = element_text(size=12),
+    axis.title = element_text(size=14),
+    legend.position = "bottom")
+
+```
+
+
+```{r, echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1}
+
+# pairplot (this needs to be in its own block to make the figure wide)
+
+p_hc_ggpairs <- ggpairs(df_clean_final_hc,
+                        legend = 1,
+                        columns = 1:col_end, 
+                        upper=list(continuous = wrap("cor", size=4, alpha=1, color="#333333")),
+                        diag = list(continuous = wrap("densityDiag", size=0.1, alpha = 0.5, color="black"), mapping = aes(fill = hc_cluster)),
+                        lower=list(continuous = wrap("points", size=1, alpha=1, shape=21, stroke=0.1, color="white"), mapping = aes(fill = hc_cluster))
+) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text = element_text(size=8),
+        axis.title = element_text(size=col_end),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold"))
+
+# since there is no color here, we only need to use fill!
+for(i in 1:p_hc_ggpairs$nrow) {
+  for(j in 1:p_hc_ggpairs$ncol){
+    p_hc_ggpairs[i,j] <- p_hc_ggpairs[i,j] + 
+      scale_fill_manual(values=color_cluster_hc)
+  }
+}
+
+
+p_hc_ggpairs
+
+```
+
+# Conclusions
+
+1. K-means and hierarchical clustering methods are able to capture the overall picture of different pyrite types. They generally separate the low- to medium-temperature types (sedimentary pyrite and VHMS) formed on or near the seafloor from the high-temperature types associated with magmatic activities (porphyry copper). The VHMS tend to be grouped together with sedimentary pyrite. However, part of the VHMS samples can form a unique group if using different number of clusters (3 vs. 2)
+
+2. With different clustering techniques and different criteria, there is no single right answer to which one is the best. Any solution that could expose some interesting aspects of the data could be explored and considered.
+
+3. Feel free to play with other clustering methods, such as distribution-based clustering (Gaussian mixture model) and density-based clustering (DBSCAN or HDBSCAN), using the pyrite database. See what you can get. You could also generate some synthetic data yourself to test the applicability of different clustering techniques.
+Although in Python, a good start is here (https://scikit-learn.org/stable/modules/clustering.html)

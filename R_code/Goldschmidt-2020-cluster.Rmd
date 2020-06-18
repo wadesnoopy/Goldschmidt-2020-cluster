@@ -1364,4 +1364,3 @@ p_hc_ggpairs
 2. With different clustering techniques and different criteria, there is no single right answer to which one is the best. Any solution that could expose some interesting aspects of the data could be explored and considered.
 
 3. Feel free to play with other clustering methods, such as distribution-based clustering (Gaussian mixture model) and density-based clustering (DBSCAN or HDBSCAN), using the pyrite database. See what you can get. You could also generate some synthetic data yourself to test the applicability of different clustering techniques.
-Although in Python, a good start is here (https://scikit-learn.org/stable/modules/clustering.html)

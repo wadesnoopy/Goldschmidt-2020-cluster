@@ -547,16 +547,6 @@ fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "silh
         axis.text = element_text(size=12),
         axis.title = element_text(size=14))
 
-# # 7 clusters is the best!!!
-# fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, nboot = 50, method = "gap_stat") +
-#   labs(subtitle = "Gap statistic") +
-#   theme_bw() +
-#   theme(panel.grid.major = element_line(size = 0.2),
-#         panel.grid.minor = element_line(size = 0),
-#         axis.text = element_text(size=12),
-#         axis.title = element_text(size=14))
-
-
 
 ## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7--------
 

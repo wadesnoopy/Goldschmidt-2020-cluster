@@ -43,7 +43,7 @@ packages_need <- c("readr", # read in csv file
                    "factoextra", # facilitate the plotting of PCA outcome and the cluster analysis
                    "clustertend", # calculate hopkins' index
                    "fpc", # clusterboot to test stability
-                   "ClusterR"
+                   "ClusterR" # for external validation
 )
 
 
@@ -604,16 +604,6 @@ fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "silh
         panel.grid.minor = element_line(size = 0),
         axis.text = element_text(size=12),
         axis.title = element_text(size=14))
-
-# # 7 clusters is the best!!!
-# fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, nboot = 50, method = "gap_stat") +
-#   labs(subtitle = "Gap statistic") +
-#   theme_bw() +
-#   theme(panel.grid.major = element_line(size = 0.2),
-#         panel.grid.minor = element_line(size = 0),
-#         axis.text = element_text(size=12),
-#         axis.title = element_text(size=14))
-
 ```
 
 

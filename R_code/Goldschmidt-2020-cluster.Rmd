@@ -16,11 +16,11 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This is an R Markdown document for the workshop -- Cluster analysis and its application in geochemistry during Goldschmidt 2020. It will go through with you the good practices in data exploration, data visualization, and cluster analysis using R. Clustering different types of pyrite is chosen as an example. And, you can apply cluster analysis to a wide array of unsupervised classification problems.
+This is an R Markdown document for the workshop -- Cluster analysis and its application in geochemistry during Goldschmidt 2020. It will go through with you some good practices in data exploration, data visualization, and cluster analysis using R. Clustering different types of pyrite is chosen as an example. You can apply cluster analysis to a wide array of unsupervised classification problems.
 
-In this code exercise, I will focus on two popular and basic clustering methods, the centroid-based clustering (K-means) and connectivity-based clustering (hierarchical clustering). A lot of the practices will be focused on data visualization and exploration.
+In this exercise, I will focus on two popular and basic clustering methods, the centroid-based clustering (K-means) and connectivity-based clustering (hierarchical clustering).
 
-FYI, The whole code is finished within 2 minutes on my macbook pro (2019) with 2.3 GHz Intel Core i9. So I would guess in general, it can be finished within ~8 minutes using a normal laptop. But if you run chunk by chunk, this will not be a problem as each chunk runs relatively fast.
+FYI, The whole code can be finished within 2 minutes on my macbook pro (2019) with 2.3 GHz Intel Core i9. So I would guess in general, it can be finished within ~8 minutes using a normal laptop. But if you run the code chunk by chunk, time will not be a problem as each chunk runs relatively fast.
 
 # Load the packages
 
@@ -30,18 +30,16 @@ FYI, The whole code is finished within 2 minutes on my macbook pro (2019) with 2
 
 # list the packages that we need
 packages_need <- c("readr", # read in csv file
+                   "magrittr",
                    "dplyr", # manipulate data
                    "tidyr", # tidy data
                    "DataExplorer", # check missing data
                    "ggplot2", # plotting
                    "GGally", # pairplot
-                   "ggradar", # radar plot
-                   "BBmisc", # do normalization for the radar plot
                    "corrplot", # correlation plot
                    "plotly", # interactive 3D plot
                    "FactoMineR", # do PCA analysis
                    "factoextra", # facilitate the plotting of PCA outcome and the cluster analysis
-                   "clustertend", # calculate hopkins' index
                    "fpc", # clusterboot to test stability
                    "ClusterR" # for external validation
 )
@@ -55,6 +53,7 @@ for (package in packages_need){
   }
   library(package, character.only = TRUE)
 }
+  
 
 # note that some warning from the require() function will appear if the package you are checking is not installed. Don't worry about it. This is only indicating your R didn't have this package before. But now you have it!
 
@@ -304,25 +303,6 @@ ggplot(df_trans_long, aes(x = value)) +
     strip.text.y = element_text(size = 12, color = "#333333"),
     strip.background = element_rect(color="black", fill="#EEEEEE"))
 
-
-# Another cool way to show the difference between each group -- the Radar plot!
-
-# construct the normalized median value for the radar plot
-df_trans_radar <- df_trans %>% 
-  group_by(Type) %>% 
-  summarise_all(median) %>% 
-  normalize(., "range") %>%
-  ungroup()
-
-# plot
-ggradar(df_trans_radar, 
-        label.gridline.min = FALSE,
-        group.colours = color_sequence,
-        group.point.size = 5,
-        group.line.width = 0.1,
-        grid.label.size = 8,
-        legend.position = "right")
-
 ```
 
 
@@ -395,7 +375,7 @@ Now we have the plots for single element (histogram, one dimention) and element 
 
 Dimension reduction comes to the rescue!
 
-**We will use PCA (Linear dimensionality reduction) here.**
+**We will use PCA (Principle Component Analysis) here.**
 
 
 ```{r, echo = TRUE, message = FALSE, fig.width = 7}
@@ -571,7 +551,7 @@ Before applying cluster methods, the first step is to assess whether the data is
 
 ```{r, echo = TRUE, message = FALSE, fig.width = 7}
 
-hopkins_stat <- 1 - hopkins(mat_clean_final, n = nrow(mat_clean_final)-1, byrow = F, header = F)$H
+hopkins_stat <- 1 - get_clust_tendency(mat_clean_final, n = nrow(mat_clean_final)-1, graph = FALSE)$hopkins_stat
 
 # the hopkins' stat is bigger than 0.5 and has a tendency for clustering
 hopkins_stat

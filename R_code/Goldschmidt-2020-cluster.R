@@ -1,27 +1,25 @@
-## ----setup, include=FALSE------------------------------------------------
+## ----setup, include=FALSE----------------------------------------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ---- echo = TRUE, message = FALSE---------------------------------------
+## ---- echo = TRUE, message = FALSE-------------------------------------------------------------------------------
 
 # this section will automatically install the missing packages on your own computer
 
 # list the packages that we need
 packages_need <- c("readr", # read in csv file
+                   "magrittr",
                    "dplyr", # manipulate data
                    "tidyr", # tidy data
                    "DataExplorer", # check missing data
                    "ggplot2", # plotting
                    "GGally", # pairplot
-                   "ggradar", # radar plot
-                   "BBmisc", # do normalization for the radar plot
                    "corrplot", # correlation plot
                    "plotly", # interactive 3D plot
                    "FactoMineR", # do PCA analysis
                    "factoextra", # facilitate the plotting of PCA outcome and the cluster analysis
-                   "clustertend", # calculate hopkins' index
                    "fpc", # clusterboot to test stability
-                   "ClusterR"
+                   "ClusterR" # for external validation
 )
 
 
@@ -33,13 +31,14 @@ for (package in packages_need){
   }
   library(package, character.only = TRUE)
 }
+  
 
 # note that some warning from the require() function will appear if the package you are checking is not installed. Don't worry about it. This is only indicating your R didn't have this package before. But now you have it!
 
 
 
 
-## ---- echo = TRUE, message = FALSE---------------------------------------
+## ---- echo = TRUE, message = FALSE-------------------------------------------------------------------------------
 # Navigate to your the R_code folder downloaded from github or from this workshop
 
 # change "/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code" to your own local path of the R_code folder downloaded from github or from this workshop
@@ -50,7 +49,7 @@ setwd("/Users/shzhang/Documents/Research/Meeting/2020-Goldschmidt/R_code")
 df <- read_csv("pyrite_samples.csv")
 
 
-## ---- echo = TRUE, message = FALSE---------------------------------------
+## ---- echo = TRUE, message = FALSE-------------------------------------------------------------------------------
 
 # check how many rows and how many columns
 dim(df)
@@ -75,7 +74,7 @@ df <- na.omit(df)
 plot_missing(df)
 
 
-## ---- echo = TRUE, message = FALSE---------------------------------------
+## ---- echo = TRUE, message = FALSE-------------------------------------------------------------------------------
 
 # check the pyrite types
 
@@ -125,7 +124,7 @@ ggplot(df) +
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 0.6--------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 0.6------------------------------------------------
 
 # first, to make the plot wider, I added "fig.width = 12, fig.asp = .6" in the {} above
 
@@ -274,27 +273,8 @@ ggplot(df_trans_long, aes(x = value)) +
     strip.background = element_rect(color="black", fill="#EEEEEE"))
 
 
-# Another cool way to show the difference between each group -- the Radar plot!
 
-# construct the normalized median value for the radar plot
-df_trans_radar <- df_trans %>% 
-  group_by(Type) %>% 
-  summarise_all(median) %>% 
-  normalize(., "range") %>%
-  ungroup()
-
-# plot
-ggradar(df_trans_radar, 
-        label.gridline.min = FALSE,
-        group.colours = color_sequence,
-        group.point.size = 5,
-        group.line.width = 0.1,
-        grid.label.size = 8,
-        legend.position = "right")
-
-
-
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1----------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1--------------------------------------------------
 
 # We can deal with this using pairplot.
 
@@ -332,7 +312,7 @@ p_ggpairs
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7, fig.asp = 1-----------
+## ---- echo = TRUE, message = FALSE, fig.width = 7, fig.asp = 1---------------------------------------------------
 # To see better about the correlation between two parameters, let's do correlation plot (using Pearson's correlation coefficient. You can try the Spearman's rank correlation coefficient)
 
 # From the correlation plot, it is easy to see that Co and Ni correlate negatively with most of the other variables. All the other variables correlate with each other positively.
@@ -350,7 +330,7 @@ corrplot.mixed(M_df_trans,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 # scale data
 mat_clean_final <- scale(df_trans[1:col_end], center = TRUE, scale = TRUE)
@@ -492,7 +472,7 @@ ggplot() +
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 10-----------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 10---------------------------------------------------------------
 
 # How about a fresh interactive 3D plot?
 
@@ -516,9 +496,9 @@ plot_ly(data = pca_df,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
-hopkins_stat <- 1 - hopkins(mat_clean_final, n = nrow(mat_clean_final)-1, byrow = F, header = F)$H
+hopkins_stat <- 1 - get_clust_tendency(mat_clean_final, n = nrow(mat_clean_final)-1, graph = FALSE)$hopkins_stat
 
 # the hopkins' stat is bigger than 0.5 and has a tendency for clustering
 hopkins_stat
@@ -526,7 +506,7 @@ hopkins_stat
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 # use fviz_nbclust to calculate the wss 
 fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "wss") +
@@ -548,7 +528,7 @@ fviz_nbclust(mat_clean_final, kmeans, nstart = 50, iter.max = 20, method = "silh
         axis.title = element_text(size=14))
 
 
-## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7--------
+## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7------------------------------------------------
 
 # use clusterboot to resample the data and calculate the stability
 
@@ -585,7 +565,7 @@ ggplot(kmeans_jaccard_df) +
   )
 
 
-## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7--------
+## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7------------------------------------------------
 
 
 kmeans_best_n <- 2
@@ -698,7 +678,7 @@ ggparcoord(data = df_clean_final_kmeans,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1----------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1--------------------------------------------------
 
 # pairplot (this needs to be in its own block to make the figure wide)
 
@@ -731,7 +711,7 @@ p_kmeans_ggpairs
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 # note that the best number of clusters based on the analyses above might not be the best
 # It’s important to remember that sometimes cluster analysis isn’t about finding the right answer – it’s about finding ways to look at data that allow us to understand the data better.
@@ -864,7 +844,7 @@ ggparcoord(data = df_clean_final_kmeans,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1----------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1--------------------------------------------------
 
 # pairplot (this needs to be in its own block to make the figure wide)
 
@@ -896,7 +876,7 @@ p_kmeans_ggpairs
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 # choose the best linkage method using cophenetic correlation
 
@@ -945,7 +925,7 @@ fviz_nbclust(mat_clean_final, hcut,  method = "silhouette", hc_method = "average
 
 
 
-## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7--------
+## ---- echo = TRUE, message = FALSE, results="hide", fig.width = 7------------------------------------------------
 
 # use clusterboot to resample the data and calculate the stability
 
@@ -985,7 +965,7 @@ ggplot(hc_jaccard_df) +
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 hc_best_n <- 2
 
@@ -1090,7 +1070,7 @@ ggparcoord(data = df_clean_final_hc,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1----------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1--------------------------------------------------
 
 # pairplot (this needs to be in its own block to make the figure wide)
 
@@ -1123,7 +1103,7 @@ p_hc_ggpairs
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 7------------------------
+## ---- echo = TRUE, message = FALSE, fig.width = 7----------------------------------------------------------------
 
 # note that the best number of clusters based on the analyses above might not be the best
 # It’s important to remember that sometimes cluster analysis isn’t about finding the right answer – it’s about finding ways to look at data that allow us to understand the data better.
@@ -1260,7 +1240,7 @@ ggparcoord(data = df_clean_final_hc,
 
 
 
-## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1----------
+## ---- echo = TRUE, message = FALSE, fig.width = 12, fig.asp = 1--------------------------------------------------
 
 # pairplot (this needs to be in its own block to make the figure wide)
 
